@@ -1,10 +1,12 @@
+import os
 import math
 # import cv2 as cv
 import huffman as hf
 
-def make_log(log, str):
+def make_log(log, print_sw, str):
     log.write(str + '\n')
-    # print(str)
+    if print_sw: 
+        print(str)
 
 def process(path_src, path_dst, path_log):
 
@@ -37,7 +39,7 @@ def process(path_src, path_dst, path_log):
 
     output, output_symbol, encode_output, encode_output_len = hf.encode(P_src_symbol, 2)    # 2元编码
 
-    make_log(log, "【编码报告】")
+    make_log(log, 0, "【编码报告】")
     
     # 计算平均码长、平均信息熵、编码效率
     average_len = 0
@@ -46,38 +48,38 @@ def process(path_src, path_dst, path_log):
         average_len += p*lenght
         H_U += (- (p*math.log2(p)) )
     
-    make_log(log, "平均码长：" + str(average_len))
-    make_log(log, "平均信息熵：" + str(H_U))
-    make_log(log, "编码效率：" + str( (H_U / average_len) * 100 ) + "%")
+    make_log(log, 0, "平均码长：" + str(average_len))
+    make_log(log, 0, "平均信息熵：" + str(H_U))
+    make_log(log, 0, "编码效率：" + str( (H_U / average_len) * 100 ) + "%")
     
     # 判断是否唯一可译码
     flag = 0
     for i in range(len(encode_output)):
         for j in range(i+1, len(encode_output)):
             if encode_output[j][0:len(encode_output[i])] == encode_output[i]:
-                make_log(log, "非唯一可译码")
+                make_log(log, 0, "非唯一可译码")
                 flag = 1
                 break
     
     if 0 == flag:
-        make_log(log, "唯一可译码：是")
+        make_log(log, 0, "唯一可译码：是")
     else:
-        make_log(log, "唯一可译码：否")
+        make_log(log, 0, "唯一可译码：否")
     
     # 计算编码的方差
     sigma_I = 0
     for p in output:
         sigma_I += p*(((-math.log2(p)) - H_U) * ((-math.log2(p)) - H_U) )
     
-    make_log(log, "方差：" + str(sigma_I))
+    make_log(log, 0, "方差：" + str(sigma_I))
     
     # 输出
     output = [round(r, 3) for r in output]
     
-    make_log(log, '|次数|概率|码元|霍夫曼编码|码长|')
-    make_log(log, '|:-:|:-:|:-:|:-:|:-:|')
+    make_log(log, 0, '|次数|概率|码元|霍夫曼编码|码长|')
+    make_log(log, 0, '|:-:|:-:|:-:|:-:|:-:|')
     for times_sym, p, symbol, encode_r, encode_r_len in zip(hashmap_src, output, [("$P_{" + symbol + "}$") for symbol in output_symbol], encode_output, encode_output_len):
-        make_log(log, "|" + str(times_sym) + "|" + str(p) + "|" + str(symbol) + "|" + str(encode_r) + "|" + str(encode_r_len) + "|")
+        make_log(log, 0, "|" + str(times_sym) + "|" + str(p) + "|" + str(symbol) + "|" + str(encode_r) + "|" + str(encode_r_len) + "|")
 
     # ==================== 文件写入 ====================
 
@@ -120,10 +122,27 @@ def process(path_src, path_dst, path_log):
     dst.close()
 
 if __name__ == "__main__":
-    path_src_1 = "1.bmp"
-    path_src_2 = "2.bmp"
-    path_src_3 = "3.bmp"
+    
+    path_src = "src"
+    path_dst = "dst"
+    path_log = "log"
 
-    process(path_src_1, (path_src_1 + ".hf"), (path_src_1 + ".md"))
-    process(path_src_2, (path_src_2 + ".hf"), (path_src_2 + ".md"))
-    process(path_src_3, (path_src_3 + ".hf"), (path_src_3 + ".md"))
+    root_log = open(path_log + "\\main.md", "w+", encoding="UTF-8")
+
+    for root, dirs, files in os.walk(path_src):
+        for file in files:
+            if ".bmp" in file:
+                path_tarSrc = os.path.join(root, file)
+                path_tarDst = os.path.join(root, file + ".hf").replace(path_src, path_dst)
+                path_tarLog = os.path.join(root, file + ".md").replace(path_src, path_log)
+
+                process(path_tarSrc, path_tarDst, path_tarLog)
+
+                tarSrc_size = os.path.getsize(path_tarSrc)
+                tarDst_size = os.path.getsize(path_tarDst)
+                
+                if 0 == tarDst_size:
+                    make_log(root_log, 1, f"[ERROR] 图片 {path_tarSrc} 压缩后大小为 0 ")
+                else: 
+                    compress_rate = (tarDst_size / tarSrc_size)
+                    make_log(root_log, 1, f"[INFO] 图片 {path_tarSrc} 压缩比为：{compress_rate} ({tarSrc_size} B => {tarDst_size} B)")

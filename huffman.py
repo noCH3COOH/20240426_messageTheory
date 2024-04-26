@@ -1,3 +1,5 @@
+
+
 def encode(input_P, D):
     input_P_symbol = []
     output_P = []    # 每个码元的概率
@@ -86,3 +88,79 @@ def min_process(min_symbol_runtime, add_char, output_P_symbol, encode_output_P, 
             min_symbol_runtime = min_symbol_runtime[0:-len(right)-1]
 
         once_flag = 1
+
+def compress(path_src, path_dst):
+
+    hashmap_src = [0 for i in range(0, 256)]
+
+    # ==================== 码元统计 ====================
+    
+    # src = cv.imread(path_src)    # 原图
+    with open(path_src, "rb") as src:
+        while True:
+            readByte = src.read(1)    # 读入 8 位
+
+            # 检查是否已到达文件末尾
+            if not readByte:
+                break
+
+            # 将字节转换为无符号整数
+            readByte = ord(readByte)
+
+            hashmap_src[readByte] += 1    # 统计一次
+
+    sum_hashmap_src = sum(hashmap_src)
+    P_src_symbol = [(hashmap_src[i] / sum_hashmap_src) for i in range(0, 256)]
+
+    src.close()
+
+    # ==================== 霍夫曼编码 ====================
+
+    output, output_symbol, encode_output, encode_output_len = encode(P_src_symbol, 2)    # 2元编码
+    
+    # 判断是否唯一可译码
+    flag = 0
+    for i in range(len(encode_output)):
+        for j in range(i+1, len(encode_output)):
+            if encode_output[j][0:len(encode_output[i])] == encode_output[i]:
+                return
+
+    # ==================== 文件写入 ====================
+
+    with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
+        cache_dst = ""    # 缓冲区，凑够整个整个字节再写入
+
+        while True:
+            readByte = src.read(1)    # 读入 8 位
+
+            # 检查是否已到达文件末尾
+            if not readByte:
+                break
+
+            # 将字节转换为无符号整数
+            readByte = ord(readByte)
+
+            cache_dst += encode_output[readByte]    # 写入编码
+
+            if 0 == (len(cache_dst) % 8):    # 凑够了
+                
+                while "" != cache_dst:
+                    byte_toWrite = 0
+
+                    for i in range(0, 8):
+                        if '1' == cache_dst[i]:
+                            byte_toWrite = (byte_toWrite << 1) + 1
+                        if '0' == cache_dst[i]:
+                            byte_toWrite = (byte_toWrite << 1) + 0
+
+                    dst.write(byte_toWrite.to_bytes(1, "big"))    # 写入最前面的一个字节
+                    cache_dst = cache_dst[8:]    # 去掉已写入的
+                
+                cache_dst = ""    # 清空缓冲区
+        
+            else:
+                continue    # 凑不够
+                
+    
+    src.close()
+    dst.close()
