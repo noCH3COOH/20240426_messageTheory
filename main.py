@@ -1,6 +1,7 @@
 import os
 import math
-# import cv2 as cv
+import json
+import cv2 as cv
 import huffman as hf
 
 def make_log(log, print_sw, str):
@@ -83,6 +84,14 @@ def process(path_src, path_dst, path_log):
 
     # ==================== 文件写入 ====================
 
+    cv_src = cv.imread(path_src)     # opencv 读入获取分辨率
+    src_width = cv_src.shape[1]    # 宽
+    src_height = cv_src.shape[0]     # 高
+
+    huffman_list = dict(zip( ["HEI", "WID", "HF_CODE_LEN", "HF_LIST"], [src_height, src_width, len(symbol), encode_output] ))
+    with open(path_dst + "list", "w+", encoding="UTF-8") as hflist:
+        hflist.write(json.dumps(huffman_list, indent=4, ensure_ascii=False))
+
     with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
         cache_dst = ""    # 缓冲区，凑够整个整个字节再写入
 
@@ -140,6 +149,7 @@ if __name__ == "__main__":
 
                 tarSrc_size = os.path.getsize(path_tarSrc)
                 tarDst_size = os.path.getsize(path_tarDst)
+                tarDst_size += os.path.getsize(path_tarDst + "list")
                 
                 if 0 == tarDst_size:
                     make_log(root_log, 1, f"[ERROR] 图片 {path_tarSrc} 压缩后大小为 0 ")
