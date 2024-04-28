@@ -1,13 +1,42 @@
+# ==================== import ====================
+
 import os
 import math
 import json
 import cv2 as cv
 import huffman as hf
 
+# ==================== 类 ====================
+
+class treeNode:
+    def __init__(self, x):
+        self.val = x
+        self.left = None
+        self.right = None
+
+# ==================== function ====================        
+
 def make_log(log, print_sw, str):
     log.write(str + '\n')
     if print_sw: 
         print(str)
+
+def print_tree(node_list, index=0):
+    # 如果索引超出列表范围，或者当前节点为None，返回
+    if (index >= len(node_list)) or (node_list[index] is None):
+        return
+
+    # 获取当前节点
+    node = node_list[index]
+
+    # 打印当前节点的值
+    print(node.val, end=' ')
+
+    # 递归打印左子树
+    print_tree(node_list, node.left)
+
+    # 递归打印右子树
+    print_tree(node_list, node.right)
 
 def process(path_src, path_dst, path_log):
 
@@ -46,8 +75,9 @@ def process(path_src, path_dst, path_log):
     average_len = 0
     H_U = 0
     for p, lenght in zip(output, encode_output_len):
-        average_len += p*lenght
-        H_U += (- (p*math.log2(p)) )
+        if p > 0:
+            average_len += p*lenght
+            H_U += (- (p*math.log2(p)) )
     
     make_log(log, 0, "平均码长：" + str(average_len))
     make_log(log, 0, "平均信息熵：" + str(H_U))
@@ -69,7 +99,7 @@ def process(path_src, path_dst, path_log):
     
     # 计算编码的方差
     sigma_I = 0
-    for p in output:
+    for p in [out for out in output if out > 0]:
         sigma_I += p*(((-math.log2(p)) - H_U) * ((-math.log2(p)) - H_U) )
     
     make_log(log, 0, "方差：" + str(sigma_I))
@@ -84,13 +114,12 @@ def process(path_src, path_dst, path_log):
 
     # ==================== 文件写入 ====================
 
-    cv_src = cv.imread(path_src)     # opencv 读入获取分辨率
-    src_width = cv_src.shape[1]    # 宽
-    src_height = cv_src.shape[0]     # 高
-
-    huffman_list = dict(zip( ["HEI", "WID", "HF_CODE_LEN", "HF_LIST"], [src_height, src_width, len(symbol), encode_output] ))
+    keys = ["HF_CODE_NUM", "HF_CODE_MIN_LEN", "HF_CODE_MAX_LEN", "HF_CODE_LIST"]
+    vals = [len(output_symbol), min(encode_output_len), max(encode_output_len), encode_output]
+    huffman_list = dict(zip(keys, vals))
     with open(path_dst + "list", "w+", encoding="UTF-8") as hflist:
         hflist.write(json.dumps(huffman_list, indent=4, ensure_ascii=False))
+    hflist.close()
 
     with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
         cache_dst = ""    # 缓冲区，凑够整个整个字节再写入
@@ -124,26 +153,97 @@ def process(path_src, path_dst, path_log):
                 cache_dst = ""    # 清空缓冲区
         
             else:
-                continue    # 凑不够
-                
+                continue    # 凑不够  
     
     src.close()
     dst.close()
+
+def deprocess(path_src, path_dst, path_log):
+    with open(path_src + "list", "rb") as hflist:
+        info_header = json.load(hflist)
+    hflist.close()
+
+    rootNode = treeNode(-1)
+    rootNode_index = 0
+
+    huffTree = [rootNode]
+    
+    for code, i in zip(info_header["HF_CODE_LIST"], range(0, info_header["HF_CODE_NUM"])):
+        now_index = rootNode_index
+
+        while "" != code:
+            if '0' == code[0]:
+                if None ==  huffTree[now_index].left:
+                    huffTree.append(treeNode(-1))
+                    huffTree[now_index].left = len(huffTree) - 1
+                
+                now_index = huffTree[now_index].left
+            
+            elif '1' == code[0]:
+                if None ==  huffTree[now_index].right:
+                    huffTree.append(treeNode(-1))
+                    huffTree[now_index].right = len(huffTree) - 1
+                
+                now_index = huffTree[now_index].right
+            
+            code = code[1:]
+        
+        huffTree[now_index].val = i
+
+    print_tree(huffTree)
+
+    readBytes_num = math.ceil(info_header["HF_CODE_MAX_LEN"] / 8.0)
+    flag_eof = 0
+    
+    with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
+        cache_byte_str = ""
+        now_index = rootNode_index
+        while True:
+            for i in range(0, readBytes_num):
+                cache_byte = ord(src.read(1))
+
+                if not cache_byte:
+                    flag_eof = 1
+                    break
+                
+                cache_byte_str += bin(cache_byte)[2:]
+            
+            while "" != cache_byte_str:
+                if -1 != huffTree[now_index].val:
+                    dst.write(huffTree[now_index].val.to_bytes(1, "big"))
+                    now_index = rootNode_index
+                    continue
+                elif '0' == cache_byte_str[0]:
+                    now_index = huffTree[now_index].left
+                elif '1' == cache_byte_str[0]:
+                    now_index = huffTree[now_index].right
+                
+                cache_byte_str = cache_byte_str[1:]
+            
+            if flag_eof:
+                break
+
+    src.close()
+    dst.close()
+
+# ==================== main ====================
 
 if __name__ == "__main__":
     
     path_src = "src"
     path_dst = "dst"
     path_log = "log"
+    path_rebuild = "rebuild"
 
     root_log = open(path_log + "\\main.md", "w+", encoding="UTF-8")
 
     for root, dirs, files in os.walk(path_src):
         for file in files:
-            if ".bmp" in file:
+            if file.endswith(".bmp"):
                 path_tarSrc = os.path.join(root, file)
                 path_tarDst = os.path.join(root, file + ".hf").replace(path_src, path_dst)
                 path_tarLog = os.path.join(root, file + ".md").replace(path_src, path_log)
+                path_tarRebuild = os.path.join(root, file).replace(path_src, path_rebuild).replace(".bmp", "_rebuild.bmp")
 
                 process(path_tarSrc, path_tarDst, path_tarLog)
 
@@ -156,3 +256,5 @@ if __name__ == "__main__":
                 else: 
                     compress_rate = (tarDst_size / tarSrc_size)
                     make_log(root_log, 1, f"[INFO] 图片 {path_tarSrc} 压缩比为：{compress_rate} ({tarSrc_size} B => {tarDst_size} B)")
+                
+                deprocess(path_tarDst, path_tarRebuild, path_tarLog)
