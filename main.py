@@ -5,38 +5,34 @@ import math
 import json
 import cv2 as cv
 import huffman as hf
+import collections
+import networkx as nx
+import matplotlib.pyplot as plt
 
 # ==================== 类 ====================
 
 class treeNode:
+    val = -1
+    left = None
+    right = None
+
     def __init__(self, x):
         self.val = x
         self.left = None
         self.right = None
+    def printNode(self):
+        return f"{[self.left, self.val, self.right]}\n"
+    
+# ==================== 全局变量 ====================
 
-# ==================== function ====================        
+root_log = open("log\\main.md", "w+", encoding="UTF-8")
+
+# ==================== function ====================     
 
 def make_log(log, print_sw, str):
     log.write(str + '\n')
     if print_sw: 
         print(str)
-
-def print_tree(node_list, index=0):
-    # 如果索引超出列表范围，或者当前节点为None，返回
-    if (index >= len(node_list)) or (node_list[index] is None):
-        return
-
-    # 获取当前节点
-    node = node_list[index]
-
-    # 打印当前节点的值
-    print(node.val, end=' ')
-
-    # 递归打印左子树
-    print_tree(node_list, node.left)
-
-    # 递归打印右子树
-    print_tree(node_list, node.right)
 
 def process(path_src, path_dst, path_log):
 
@@ -88,7 +84,6 @@ def process(path_src, path_dst, path_log):
     for i in range(len(encode_output)):
         for j in range(i+1, len(encode_output)):
             if encode_output[j][0:len(encode_output[i])] == encode_output[i]:
-                make_log(log, 0, "非唯一可译码")
                 flag = 1
                 break
     
@@ -158,40 +153,40 @@ def process(path_src, path_dst, path_log):
     src.close()
     dst.close()
 
-def deprocess(path_src, path_dst, path_log):
+def unprocess(path_src, path_dst, path_log):
+
+    # ==================== 加载霍夫曼码表 ====================
     with open(path_src + "list", "rb") as hflist:
         info_header = json.load(hflist)
     hflist.close()
 
-    rootNode = treeNode(-1)
+    # ==================== 生成霍夫曼二叉树 ====================
     rootNode_index = 0
-
-    huffTree = [rootNode]
+    huffTree = [treeNode(-1)]
     
     for code, i in zip(info_header["HF_CODE_LIST"], range(0, info_header["HF_CODE_NUM"])):
         now_index = rootNode_index
 
         while "" != code:
-            if '0' == code[0]:
+            if '0' == code[0]:    # 左子节点
                 if None ==  huffTree[now_index].left:
                     huffTree.append(treeNode(-1))
                     huffTree[now_index].left = len(huffTree) - 1
                 
                 now_index = huffTree[now_index].left
             
-            elif '1' == code[0]:
+            elif '1' == code[0]:    # 右子节点
                 if None ==  huffTree[now_index].right:
                     huffTree.append(treeNode(-1))
                     huffTree[now_index].right = len(huffTree) - 1
                 
                 now_index = huffTree[now_index].right
             
-            code = code[1:]
+            code = code[1:]    # 去掉已处理的
         
-        huffTree[now_index].val = i
+        huffTree[now_index].val = i    # 叶子节点
 
-    print_tree(huffTree)
-
+    # ==================== 重建文件 ====================
     readBytes_num = math.ceil(info_header["HF_CODE_MAX_LEN"] / 8.0)
     flag_eof = 0
     
@@ -200,18 +195,17 @@ def deprocess(path_src, path_dst, path_log):
         now_index = rootNode_index
         while True:
             for i in range(0, readBytes_num):
-                cache_byte = ord(src.read(1))
-
-                if not cache_byte:
+                origin_byte = src.read(1)
+                if not origin_byte:    # 检查是否已到达文件末尾
                     flag_eof = 1
                     break
-                
-                cache_byte_str += bin(cache_byte)[2:]
+
+                cache_byte_str = cache_byte_str + bin(ord(origin_byte))[2:].zfill(8)    # 读入 8 位
             
             while "" != cache_byte_str:
                 if -1 != huffTree[now_index].val:
                     dst.write(huffTree[now_index].val.to_bytes(1, "big"))
-                    now_index = rootNode_index
+                    now_index = rootNode_index    # 已写入一个值，回到根节点
                     continue
                 elif '0' == cache_byte_str[0]:
                     now_index = huffTree[now_index].left
@@ -220,7 +214,8 @@ def deprocess(path_src, path_dst, path_log):
                 
                 cache_byte_str = cache_byte_str[1:]
             
-            if flag_eof:
+            if flag_eof:    # 文件读取完毕
+                make_log(root_log, 1, f"[SUCCESS] 图片 {path_src} 重建完成 ")
                 break
 
     src.close()
@@ -234,8 +229,6 @@ if __name__ == "__main__":
     path_dst = "dst"
     path_log = "log"
     path_rebuild = "rebuild"
-
-    root_log = open(path_log + "\\main.md", "w+", encoding="UTF-8")
 
     for root, dirs, files in os.walk(path_src):
         for file in files:
@@ -257,4 +250,4 @@ if __name__ == "__main__":
                     compress_rate = (tarDst_size / tarSrc_size)
                     make_log(root_log, 1, f"[INFO] 图片 {path_tarSrc} 压缩比为：{compress_rate} ({tarSrc_size} B => {tarDst_size} B)")
                 
-                deprocess(path_tarDst, path_tarRebuild, path_tarLog)
+                unprocess(path_tarDst, path_tarRebuild, path_tarLog)

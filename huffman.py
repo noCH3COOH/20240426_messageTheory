@@ -1,4 +1,28 @@
+# ==================== import ====================
 
+import math
+import json
+
+# ==================== 类 ====================
+
+class treeNode:
+    val = -1
+    left = None
+    right = None
+
+    def __init__(self, x):
+        self.val = x
+        self.left = None
+        self.right = None
+    def printNode(self):
+        return f"{[self.left, self.val, self.right]}\n"
+
+# ==================== function ====================
+
+def make_log(log, print_sw, str):
+    log.write(str + '\n')
+    if print_sw: 
+        print(str)
 
 def encode(input_P, D):
     input_P_symbol = []
@@ -89,7 +113,7 @@ def min_process(min_symbol_runtime, add_char, output_P_symbol, encode_output_P, 
 
         once_flag = 1
 
-def compress(path_src, path_dst):
+def compress(path_src, path_dst, root_log):
 
     hashmap_src = [0 for i in range(0, 256)]
 
@@ -119,10 +143,10 @@ def compress(path_src, path_dst):
     output, output_symbol, encode_output, encode_output_len = encode(P_src_symbol, 2)    # 2元编码
     
     # 判断是否唯一可译码
-    flag = 0
     for i in range(len(encode_output)):
         for j in range(i+1, len(encode_output)):
             if encode_output[j][0:len(encode_output[i])] == encode_output[i]:
+                make_log(root_log, 1, f"[ERROR] 非唯一可译码，无法进行压缩")
                 return
 
     # ==================== 文件写入 ====================
@@ -162,5 +186,73 @@ def compress(path_src, path_dst):
                 continue    # 凑不够
                 
     
+    src.close()
+    dst.close()
+
+def uncompress(path_src, path_dst, root_log):
+
+    # ==================== 加载霍夫曼码表 ====================
+    with open(path_src + "list", "rb") as hflist:
+        info_header = json.load(hflist)
+    hflist.close()
+
+    # ==================== 生成霍夫曼二叉树 ====================
+    rootNode_index = 0
+    huffTree = [treeNode(-1)]
+    
+    for code, i in zip(info_header["HF_CODE_LIST"], range(0, info_header["HF_CODE_NUM"])):
+        now_index = rootNode_index
+
+        while "" != code:
+            if '0' == code[0]:    # 左子节点
+                if None ==  huffTree[now_index].left:
+                    huffTree.append(treeNode(-1))
+                    huffTree[now_index].left = len(huffTree) - 1
+                
+                now_index = huffTree[now_index].left
+            
+            elif '1' == code[0]:    # 右子节点
+                if None ==  huffTree[now_index].right:
+                    huffTree.append(treeNode(-1))
+                    huffTree[now_index].right = len(huffTree) - 1
+                
+                now_index = huffTree[now_index].right
+            
+            code = code[1:]    # 去掉已处理的
+        
+        huffTree[now_index].val = i    # 叶子节点
+
+    # ==================== 重建文件 ====================
+    readBytes_num = math.ceil(info_header["HF_CODE_MAX_LEN"] / 8.0)
+    flag_eof = 0
+    
+    with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
+        cache_byte_str = ""
+        now_index = rootNode_index
+        while True:
+            for i in range(0, readBytes_num):
+                origin_byte = src.read(1)
+                if not origin_byte:    # 检查是否已到达文件末尾
+                    flag_eof = 1
+                    break
+
+                cache_byte_str = cache_byte_str + bin(ord(origin_byte))[2:].zfill(8)    # 读入 8 位
+            
+            while "" != cache_byte_str:
+                if -1 != huffTree[now_index].val:
+                    dst.write(huffTree[now_index].val.to_bytes(1, "big"))
+                    now_index = rootNode_index    # 已写入一个值，回到根节点
+                    continue
+                elif '0' == cache_byte_str[0]:
+                    now_index = huffTree[now_index].left
+                elif '1' == cache_byte_str[0]:
+                    now_index = huffTree[now_index].right
+                
+                cache_byte_str = cache_byte_str[1:]
+            
+            if flag_eof:    # 文件读取完毕
+                make_log(root_log, 1, f"[SUCCESS] 图片 {path_src} 重建完成 ")
+                break
+
     src.close()
     dst.close()
