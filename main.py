@@ -2,11 +2,9 @@
 
 import os
 import math
+import time
 import json
-import cv2 as cv
 import huffman as hf
-import collections
-import networkx as nx
 import matplotlib.pyplot as plt
 
 # ==================== 类 ====================
@@ -25,7 +23,7 @@ class treeNode:
     
 # ==================== 全局变量 ====================
 
-root_log = open("log\\main.md", "w+", encoding="UTF-8")
+root_log = open("./log/main.md", "w+", encoding="UTF-8")
 
 # ==================== function ====================     
 
@@ -35,6 +33,8 @@ def make_log(log, print_sw, str):
         print(str)
 
 def process(path_src, path_dst, path_log):
+
+    start_time = time.time()
 
     log = open(path_log, "w+", encoding="UTF-8")
 
@@ -153,7 +153,11 @@ def process(path_src, path_dst, path_log):
     src.close()
     dst.close()
 
+    make_log(root_log, 1, f"[SUCCESS] 压缩用时 {time.time() - start_time} s")
+
 def unprocess(path_src, path_dst, path_log):
+
+    start_time = time.time()
 
     # ==================== 加载霍夫曼码表 ====================
     with open(path_src + "list", "rb") as hflist:
@@ -220,6 +224,7 @@ def unprocess(path_src, path_dst, path_log):
 
     src.close()
     dst.close()
+    make_log(root_log, 1, f"[SUCCESS] 重建用时 {time.time() - start_time} s")
 
 # ==================== main ====================
 
