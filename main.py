@@ -109,27 +109,31 @@ def process(path_src, path_dst, path_log):
 
     # ==================== 文件写入 ====================
 
-    keys = ["HF_CODE_NUM", "HF_CODE_MIN_LEN", "HF_CODE_MAX_LEN", "HF_CODE_LIST"]
-    vals = [len(output_symbol), min(encode_output_len), max(encode_output_len), encode_output]
-    huffman_list = dict(zip(keys, vals))
-    with open(path_dst + "list", "w+", encoding="UTF-8") as hflist:
-        hflist.write(json.dumps(huffman_list, indent=4, ensure_ascii=False))
-    hflist.close()
+    num_fixZero = 0   # 补 0 的数量
 
     with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
         cache_dst = ""    # 缓冲区，凑够整个整个字节再写入
+        count_byte = 0    # 计数器，记录已读入的字节数
+        flag_eof = False    # 文件读取完毕标志
 
         while True:
             readByte = src.read(1)    # 读入 8 位
 
             # 检查是否已到达文件末尾
             if not readByte:
-                break
+                # print(cache_dst)
+                flag_eof = True
 
-            # 将字节转换为无符号整数
-            readByte = ord(readByte)
+                num_fixZero = 8 - (len(cache_dst) % 8)    # 补 0 的数量，补上一点冗余使得信息完整
+                cache_dst += "0" * num_fixZero    # 补 0
+                # print("[INFO] 补0数量：" + str(num_fixZero))
+                make_log(log, 1, f"[INFO] 补0数量：{num_fixZero} ")
+            else:
+                count_byte += 1
 
-            cache_dst += encode_output[readByte]    # 写入编码
+                # 将字节转换为无符号整数
+                readByte = ord(readByte)
+                cache_dst += encode_output[readByte]    # 写入编码               
 
             if 0 == (len(cache_dst) % 8):    # 凑够了
                 
@@ -149,11 +153,23 @@ def process(path_src, path_dst, path_log):
         
             else:
                 continue    # 凑不够  
+
+            if flag_eof:
+                make_log(log, 0, f"[SUCCESS] 图片 {path_src} 压缩完成 ")
+                break
+
+    # 码元数量、最小码长、最大码长、编码表
+    keys = ["HF_CODE_NUM", "HF_FILE_SIZE", "HF_CODE_MIN_LEN", "HF_CODE_MAX_LEN", "HF_CODE_LIST"]
+    vals = [len(output_symbol), count_byte, min(encode_output_len), max(encode_output_len), encode_output]
+    huffman_list = dict(zip(keys, vals))
+    with open(path_dst + "list", "w+", encoding="UTF-8") as hflist:
+        hflist.write(json.dumps(huffman_list, indent=4, ensure_ascii=False))
+    hflist.close()
     
     src.close()
     dst.close()
 
-    make_log(root_log, 1, f"[SUCCESS] 压缩用时 {time.time() - start_time} s")
+    make_log(root_log, 1, f"[SUCCESS] 压缩用时 {time.time() - start_time} s，已压缩 {count_byte} 字节")
 
 def unprocess(path_src, path_dst, path_log):
 
@@ -193,10 +209,13 @@ def unprocess(path_src, path_dst, path_log):
     # ==================== 重建文件 ====================
     readBytes_num = math.ceil(info_header["HF_CODE_MAX_LEN"] / 8.0)
     flag_eof = 0
+    file_size = info_header["HF_FILE_SIZE"]
     
     with open(path_src, "rb") as src, open(path_dst, "wb") as dst:
         cache_byte_str = ""
         now_index = rootNode_index
+        count_byte = 0
+
         while True:
             for i in range(0, readBytes_num):
                 origin_byte = src.read(1)
@@ -206,10 +225,11 @@ def unprocess(path_src, path_dst, path_log):
 
                 cache_byte_str = cache_byte_str + bin(ord(origin_byte))[2:].zfill(8)    # 读入 8 位
             
-            while "" != cache_byte_str:
+            while "" != cache_byte_str and count_byte < file_size:
                 if -1 != huffTree[now_index].val:
                     dst.write(huffTree[now_index].val.to_bytes(1, "big"))
                     now_index = rootNode_index    # 已写入一个值，回到根节点
+                    count_byte += 1
                     continue
                 elif '0' == cache_byte_str[0]:
                     now_index = huffTree[now_index].left
@@ -224,7 +244,7 @@ def unprocess(path_src, path_dst, path_log):
 
     src.close()
     dst.close()
-    make_log(root_log, 1, f"[SUCCESS] 重建用时 {time.time() - start_time} s")
+    make_log(root_log, 1, f"[SUCCESS] 重建用时 {time.time() - start_time} s，已重建 {count_byte} 字节")
 
 # ==================== main ====================
 
